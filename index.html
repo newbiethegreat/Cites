@@ -1,422 +1,450 @@
-import React, { useState, useEffect } from 'react';
-
-// --- GAME DATA ---
-const BUILDINGS = {
-  TS: { id: 'TS', name: 'Town Square', cost: {}, produces: { wood: 1, stone: 1, gold: 1 }, icon: '🏛️', color: 'bg-slate-700', text: 'text-white', desc: 'Core city center.' },
-  L: { id: 'L', name: 'Lumber Mill', cost: { gold: 1 }, produces: { wood: 1 }, icon: '🪚', color: 'bg-amber-800', text: 'text-amber-100', desc: '+1 Wood/yr. No adjacent Houses.' },
-  Q: { id: 'Q', name: 'Quarry', cost: { gold: 1 }, produces: { stone: 1 }, icon: '⛏️', color: 'bg-stone-500', text: 'text-stone-100', desc: '+1 Stone/yr. No adjacent Houses.' },
-  M: { id: 'M', name: 'Market', cost: { wood: 1, stone: 1 }, produces: { gold: 2 }, icon: '⚖️', color: 'bg-yellow-500', text: 'text-yellow-900', desc: '+2 Gold/yr. Must touch a House.' },
-  H: { id: 'H', name: 'House', cost: { wood: 2, stone: 1 }, produces: {}, icon: '🏠', color: 'bg-blue-500', text: 'text-blue-50', desc: '2 VP. No adjacent L or Q.' },
-  P: { id: 'P', name: 'Park', cost: { wood: 2 }, produces: {}, icon: '🌳', color: 'bg-green-600', text: 'text-green-50', desc: '1 VP per adjacent House.' },
-  C: { id: 'C', name: 'Castle', cost: { wood: 4, stone: 4 }, produces: {}, icon: '🏰', color: 'bg-purple-600', text: 'text-purple-50', desc: '12 VP. Requires 2x2 space.' }
-};
-
-const INITIAL_RESOURCES = { wood: 1, stone: 1, gold: 1 };
-const MAX_YEARS = 10;
-
-export default function App() {
-  const [showIntro, setShowIntro] = useState(true);
-  const [grid, setGrid] = useState(Array(64).fill(null));
-  const [resources, setResources] = useState(INITIAL_RESOURCES);
-  const [year, setYear] = useState(1);
-  const [selectedBuilding, setSelectedBuilding] = useState(null);
-  const [message, setMessage] = useState('');
-  const [hoverIndex, setHoverIndex] = useState(null);
-  const [gameOver, setGameOver] = useState(false);
-  const [score, setScore] = useState(0);
-
-  // Initialize Town Square
-  useEffect(() => {
-    const newGrid = Array(64).fill(null);
-    // 8x8 grid center is indices 27, 28, 35, 36
-    newGrid[27] = 'TS'; newGrid[28] = 'TS';
-    newGrid[35] = 'TS'; newGrid[36] = 'TS';
-    setGrid(newGrid);
-  }, []);
-
-  const showMessage = (msg) => {
-    setMessage(msg);
-    setTimeout(() => setMessage(''), 3000);
-  };
-
-  const getAdjacent = (i) => {
-    const adj = [];
-    const row = Math.floor(i / 8);
-    const col = i % 8;
-    if (row > 0) adj.push(i - 8); // up
-    if (row < 7) adj.push(i + 8); // down
-    if (col > 0) adj.push(i - 1); // left
-    if (col < 7) adj.push(i + 1); // right
-    return adj;
-  };
-
-  const validatePlacement = (i, type) => {
-    if (!type) return { valid: false, reason: 'Select a building first.' };
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Paper Metropolis</title>
     
-    const b = BUILDINGS[type];
-    if (resources.wood < (b.cost.wood || 0) || 
-        resources.stone < (b.cost.stone || 0) || 
-        resources.gold < (b.cost.gold || 0)) {
-      return { valid: false, reason: 'Not enough resources.' };
-    }
-
-    let cellsToCheck = [i];
-    if (type === 'C') {
-      if (i % 8 === 7 || Math.floor(i / 8) === 7) return { valid: false, reason: 'Castle must fit on the grid.' };
-      cellsToCheck = [i, i + 1, i + 8, i + 9];
-    }
-
-    if (cellsToCheck.some(c => grid[c] !== null)) {
-      return { valid: false, reason: 'Space is already occupied.' };
-    }
-
-    let hasAdjacency = false;
-    let adjCells = [];
+    <!-- Load Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
     
-    cellsToCheck.forEach(c => {
-      getAdjacent(c).forEach(adj => {
-        if (!cellsToCheck.includes(adj)) {
-          adjCells.push(adj);
-          if (grid[adj] !== null) hasAdjacency = true;
-        }
-      });
-    });
-
-    if (!hasAdjacency) return { valid: false, reason: 'Must touch an existing building.' };
-
-    if (type === 'H') {
-      if (adjCells.some(adj => grid[adj] === 'L' || grid[adj] === 'Q')) {
-        return { valid: false, reason: 'House cannot be next to Lumber Mill or Quarry.' };
-      }
-    }
+    <!-- Load React -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
     
-    if (type === 'M') {
-      if (!adjCells.some(adj => grid[adj] === 'H')) {
-        return { valid: false, reason: 'Market must be placed next to a House.' };
-      }
-    }
+    <!-- Load Babel to translate JSX in the browser -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+    <div id="root"></div>
 
-    return { valid: true, cells: cellsToCheck, cost: b.cost };
-  };
+    <script type="text/babel">
+        const { useState, useEffect } = React;
 
-  const handleCellClick = (i) => {
-    if (gameOver || !selectedBuilding) return;
+        // --- GAME DATA ---
+        const BUILDINGS = {
+          TS: { id: 'TS', name: 'Town Square', cost: {}, produces: { wood: 1, stone: 1, gold: 1 }, icon: '🏛️', color: 'bg-slate-700', text: 'text-white', desc: 'Core city center.' },
+          L: { id: 'L', name: 'Lumber Mill', cost: { gold: 1 }, produces: { wood: 1 }, icon: '🪚', color: 'bg-amber-800', text: 'text-amber-100', desc: '+1 Wood/yr. No adjacent Houses.' },
+          Q: { id: 'Q', name: 'Quarry', cost: { gold: 1 }, produces: { stone: 1 }, icon: '⛏️', color: 'bg-stone-500', text: 'text-stone-100', desc: '+1 Stone/yr. No adjacent Houses.' },
+          M: { id: 'M', name: 'Market', cost: { wood: 1, stone: 1 }, produces: { gold: 2 }, icon: '⚖️', color: 'bg-yellow-500', text: 'text-yellow-900', desc: '+2 Gold/yr. Must touch a House.' },
+          H: { id: 'H', name: 'House', cost: { wood: 2, stone: 1 }, produces: {}, icon: '🏠', color: 'bg-blue-500', text: 'text-blue-50', desc: '2 VP. No adjacent L or Q.' },
+          P: { id: 'P', name: 'Park', cost: { wood: 2 }, produces: {}, icon: '🌳', color: 'bg-green-600', text: 'text-green-50', desc: '1 VP per adjacent House.' },
+          C: { id: 'C', name: 'Castle', cost: { wood: 4, stone: 4 }, produces: {}, icon: '🏰', color: 'bg-purple-600', text: 'text-purple-50', desc: '12 VP. Requires 2x2 space.' }
+        };
 
-    const validation = validatePlacement(i, selectedBuilding);
-    if (!validation.valid) {
-      showMessage(validation.reason);
-      return;
-    }
+        const INITIAL_RESOURCES = { wood: 1, stone: 1, gold: 1 };
+        const MAX_YEARS = 10;
 
-    // Apply Placement
-    const newGrid = [...grid];
-    validation.cells.forEach(c => newGrid[c] = selectedBuilding);
-    setGrid(newGrid);
+        function App() {
+          const [showIntro, setShowIntro] = useState(true);
+          const [grid, setGrid] = useState(Array(64).fill(null));
+          const [resources, setResources] = useState(INITIAL_RESOURCES);
+          const [year, setYear] = useState(1);
+          const [selectedBuilding, setSelectedBuilding] = useState(null);
+          const [message, setMessage] = useState('');
+          const [hoverIndex, setHoverIndex] = useState(null);
+          const [gameOver, setGameOver] = useState(false);
+          const [score, setScore] = useState(0);
 
-    // Deduct Resources
-    setResources(prev => ({
-      wood: prev.wood - (validation.cost.wood || 0),
-      stone: prev.stone - (validation.cost.stone || 0),
-      gold: prev.gold - (validation.cost.gold || 0),
-    }));
-    
-    setSelectedBuilding(null);
-  };
+          // Initialize Town Square
+          useEffect(() => {
+            const newGrid = Array(64).fill(null);
+            // 8x8 grid center is indices 27, 28, 35, 36
+            newGrid[27] = 'TS'; newGrid[28] = 'TS';
+            newGrid[35] = 'TS'; newGrid[36] = 'TS';
+            setGrid(newGrid);
+          }, []);
 
-  const endYear = () => {
-    if (year >= MAX_YEARS) {
-      calculateScore(grid, resources);
-      setGameOver(true);
-      return;
-    }
+          const showMessage = (msg) => {
+            setMessage(msg);
+            setTimeout(() => setMessage(''), 3000);
+          };
 
-    // Production Phase
-    let newWood = resources.wood + 1; // TS base
-    let newStone = resources.stone + 1; // TS base
-    let newGold = resources.gold + 1; // TS base
+          const getAdjacent = (i) => {
+            const adj = [];
+            const row = Math.floor(i / 8);
+            const col = i % 8;
+            if (row > 0) adj.push(i - 8); // up
+            if (row < 7) adj.push(i + 8); // down
+            if (col > 0) adj.push(i - 1); // left
+            if (col < 7) adj.push(i + 1); // right
+            return adj;
+          };
 
-    grid.forEach(cell => {
-      if (cell === 'L') newWood++;
-      if (cell === 'Q') newStone++;
-      if (cell === 'M') newGold += 2;
-    });
-
-    setResources({ wood: newWood, stone: newStone, gold: newGold });
-    setYear(y => y + 1);
-    setSelectedBuilding(null);
-  };
-
-  const calculateScore = (finalGrid, finalResources) => {
-    let pts = 0;
-    let castleCells = 0;
-
-    finalGrid.forEach((cell, i) => {
-      if (cell === 'H') pts += 2;
-      if (cell === 'P') {
-        getAdjacent(i).forEach(adj => {
-          if (finalGrid[adj] === 'H') pts++;
-        });
-      }
-      if (cell === 'C') castleCells++;
-    });
-
-    pts += (castleCells / 4) * 12; // 12 VP per Castle (which spans 4 cells)
-    
-    const totalRes = finalResources.wood + finalResources.stone + finalResources.gold;
-    pts += Math.floor(totalRes / 3);
-
-    setScore(pts);
-  };
-
-  const resetGame = () => {
-    const newGrid = Array(64).fill(null);
-    newGrid[27] = 'TS'; newGrid[28] = 'TS';
-    newGrid[35] = 'TS'; newGrid[36] = 'TS';
-    setGrid(newGrid);
-    setResources(INITIAL_RESOURCES);
-    setYear(1);
-    setGameOver(false);
-    setSelectedBuilding(null);
-    setScore(0);
-  };
-
-  // Hover highlighting logic
-  const getHoverClass = (i) => {
-    if (!selectedBuilding || hoverIndex === null) return '';
-    let hoverCells = [hoverIndex];
-    if (selectedBuilding === 'C') {
-      if (hoverIndex % 8 === 7 || Math.floor(hoverIndex / 8) === 7) return 'opacity-50 bg-red-400';
-      hoverCells = [hoverIndex, hoverIndex + 1, hoverIndex + 8, hoverIndex + 9];
-    }
-    
-    if (hoverCells.includes(i)) {
-      const validation = validatePlacement(hoverIndex, selectedBuilding);
-      return validation.valid ? 'brightness-125 ring-2 ring-white z-10' : 'bg-red-500/50 ring-2 ring-red-500 z-10 cursor-not-allowed';
-    }
-    return '';
-  };
-
-  if (showIntro) {
-    return <IntroScreen onStart={() => setShowIntro(false)} />;
-  }
-
-  return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 font-sans p-4 md:p-8 flex flex-col items-center">
-      
-      {/* HEADER */}
-      <header className="w-full max-w-5xl flex flex-col md:flex-row justify-between items-center mb-6 bg-slate-800 p-4 rounded-xl shadow-lg border border-slate-700">
-        <div>
-          <h1 className="text-2xl md:text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-emerald-400 flex items-center gap-2">
-            🏛️ Paper Metropolis
-          </h1>
-          <p className="text-slate-400 text-sm mt-1">Engine-Building Strategy</p>
-        </div>
-        
-        <div className="flex items-center gap-6 mt-4 md:mt-0">
-          <div className="text-center">
-            <p className="text-xs text-slate-400 uppercase tracking-wider font-bold">Year</p>
-            <p className="text-3xl font-bold text-emerald-400">{year} <span className="text-lg text-slate-500">/ {MAX_YEARS}</span></p>
-          </div>
-          <button 
-            onClick={endYear}
-            disabled={gameOver}
-            className="px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 rounded-lg font-bold shadow-lg transform transition active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {year >= MAX_YEARS ? 'Finish Game' : 'End Year ➔'}
-          </button>
-        </div>
-      </header>
-
-      {/* MESSAGE TOAST */}
-      <div className="h-8 mb-2 flex items-center justify-center w-full">
-        {message && (
-          <div className="bg-red-500/20 text-red-300 border border-red-500/50 px-4 py-1 rounded-full text-sm font-medium animate-pulse">
-            {message}
-          </div>
-        )}
-      </div>
-
-      <div className="w-full max-w-5xl grid grid-cols-1 lg:grid-cols-12 gap-8">
-        
-        {/* LEFT COLUMN: RESOURCES & GRID */}
-        <div className="lg:col-span-7 flex flex-col gap-6">
-          
-          {/* RESOURCES */}
-          <div className="grid grid-cols-3 gap-4">
-            <ResourceCard icon="🪵" name="Wood" count={resources.wood} color="text-amber-600" bg="bg-amber-950/30" border="border-amber-900/50" />
-            <ResourceCard icon="🪨" name="Stone" count={resources.stone} color="text-stone-400" bg="bg-stone-800/50" border="border-stone-700/50" />
-            <ResourceCard icon="🪙" name="Gold" count={resources.gold} color="text-yellow-400" bg="bg-yellow-950/30" border="border-yellow-900/50" />
-          </div>
-
-          {/* GAME GRID */}
-          <div className="bg-slate-800 p-2 sm:p-4 rounded-xl border border-slate-700 shadow-2xl overflow-hidden flex justify-center">
-             <div className="grid grid-cols-8 gap-1 sm:gap-2 w-full max-w-[500px] aspect-square">
-                {grid.map((cell, i) => {
-                  const b = cell ? BUILDINGS[cell] : null;
-                  return (
-                    <div 
-                      key={i}
-                      onMouseEnter={() => setHoverIndex(i)}
-                      onMouseLeave={() => setHoverIndex(null)}
-                      onClick={() => handleCellClick(i)}
-                      className={`
-                        relative rounded-sm sm:rounded-md flex items-center justify-center text-xl sm:text-3xl cursor-pointer transition-all duration-200
-                        ${b ? b.color + ' shadow-inner border border-black/20' : 'bg-slate-900/50 hover:bg-slate-700 border border-slate-700/50'}
-                        ${getHoverClass(i)}
-                      `}
-                    >
-                      {b && <span className="drop-shadow-md select-none">{b.icon}</span>}
-                    </div>
-                  );
-                })}
-             </div>
-          </div>
-        </div>
-
-        {/* RIGHT COLUMN: CATALOG */}
-        <div className="lg:col-span-5 bg-slate-800 p-5 rounded-xl border border-slate-700 shadow-xl flex flex-col">
-          <h2 className="text-xl font-bold mb-4 flex items-center gap-2 border-b border-slate-700 pb-2">
-            <span className="text-slate-400">🏗️</span> Blueprints
-          </h2>
-          
-          <div className="flex-1 overflow-y-auto pr-2 space-y-3">
-            {Object.keys(BUILDINGS).filter(k => k !== 'TS').map(key => {
-              const b = BUILDINGS[key];
-              const isSelected = selectedBuilding === key;
-              const canAfford = resources.wood >= (b.cost.wood||0) && 
-                                resources.stone >= (b.cost.stone||0) && 
-                                resources.gold >= (b.cost.gold||0);
-
-              return (
-                <button
-                  key={key}
-                  disabled={!canAfford || gameOver}
-                  onClick={() => setSelectedBuilding(isSelected ? null : key)}
-                  className={`
-                    w-full text-left p-3 rounded-lg border-2 transition-all flex items-center gap-4
-                    ${isSelected ? 'bg-slate-700 border-emerald-500 scale-[1.02] shadow-lg' : 'bg-slate-900/50 border-transparent hover:bg-slate-700/50'}
-                    ${!canAfford ? 'opacity-50 grayscale cursor-not-allowed' : ''}
-                  `}
-                >
-                  <div className={`w-12 h-12 flex items-center justify-center rounded-md text-2xl shadow-inner ${b.color}`}>
-                    {b.icon}
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex justify-between items-center">
-                      <h3 className="font-bold text-slate-100">{b.name}</h3>
-                      <div className="flex gap-1 text-xs">
-                        {b.cost.wood && <span className="bg-amber-900/50 text-amber-200 px-1.5 py-0.5 rounded">🪵 {b.cost.wood}</span>}
-                        {b.cost.stone && <span className="bg-stone-700/50 text-stone-200 px-1.5 py-0.5 rounded">🪨 {b.cost.stone}</span>}
-                        {b.cost.gold && <span className="bg-yellow-900/50 text-yellow-200 px-1.5 py-0.5 rounded">🪙 {b.cost.gold}</span>}
-                      </div>
-                    </div>
-                    <p className="text-xs text-slate-400 mt-1 leading-tight">{b.desc}</p>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-          
-          {/* Legend/Hint */}
-          <div className="mt-4 pt-4 border-t border-slate-700 text-xs text-slate-500">
-            <p>💡 Tip: Buildings must touch existing buildings. Every unspent 3 resources = 1 VP.</p>
-          </div>
-        </div>
-
-      </div>
-
-      {/* GAME OVER MODAL */}
-      {gameOver && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-300">
-          <div className="bg-slate-800 border border-slate-600 p-8 rounded-2xl shadow-2xl max-w-sm w-full text-center transform scale-100 transition-all">
-            <h2 className="text-4xl font-bold mb-2">City Built!</h2>
-            <p className="text-slate-400 mb-6">Year 10 has concluded.</p>
+          const validatePlacement = (i, type) => {
+            if (!type) return { valid: false, reason: 'Select a building first.' };
             
-            <div className="bg-slate-900/50 rounded-xl p-6 mb-8 border border-slate-700">
-              <p className="text-sm text-slate-400 uppercase tracking-widest font-bold mb-1">Final Score</p>
-              <p className="text-6xl font-black text-transparent bg-clip-text bg-gradient-to-br from-emerald-400 to-cyan-500">
-                {score} <span className="text-2xl text-slate-500">VP</span>
-              </p>
+            const b = BUILDINGS[type];
+            if (resources.wood < (b.cost.wood || 0) || 
+                resources.stone < (b.cost.stone || 0) || 
+                resources.gold < (b.cost.gold || 0)) {
+              return { valid: false, reason: 'Not enough resources.' };
+            }
+
+            let cellsToCheck = [i];
+            if (type === 'C') {
+              if (i % 8 === 7 || Math.floor(i / 8) === 7) return { valid: false, reason: 'Castle must fit on the grid.' };
+              cellsToCheck = [i, i + 1, i + 8, i + 9];
+            }
+
+            if (cellsToCheck.some(c => grid[c] !== null)) {
+              return { valid: false, reason: 'Space is already occupied.' };
+            }
+
+            let hasAdjacency = false;
+            let adjCells = [];
+            
+            cellsToCheck.forEach(c => {
+              getAdjacent(c).forEach(adj => {
+                if (!cellsToCheck.includes(adj)) {
+                  adjCells.push(adj);
+                  if (grid[adj] !== null) hasAdjacency = true;
+                }
+              });
+            });
+
+            if (!hasAdjacency) return { valid: false, reason: 'Must touch an existing building.' };
+
+            if (type === 'H') {
+              if (adjCells.some(adj => grid[adj] === 'L' || grid[adj] === 'Q')) {
+                return { valid: false, reason: 'House cannot be next to Lumber Mill or Quarry.' };
+              }
+            }
+            
+            if (type === 'M') {
+              if (!adjCells.some(adj => grid[adj] === 'H')) {
+                return { valid: false, reason: 'Market must be placed next to a House.' };
+              }
+            }
+
+            return { valid: true, cells: cellsToCheck, cost: b.cost };
+          };
+
+          const handleCellClick = (i) => {
+            if (gameOver || !selectedBuilding) return;
+
+            const validation = validatePlacement(i, selectedBuilding);
+            if (!validation.valid) {
+              showMessage(validation.reason);
+              return;
+            }
+
+            // Apply Placement
+            const newGrid = [...grid];
+            validation.cells.forEach(c => newGrid[c] = selectedBuilding);
+            setGrid(newGrid);
+
+            // Deduct Resources
+            setResources(prev => ({
+              wood: prev.wood - (validation.cost.wood || 0),
+              stone: prev.stone - (validation.cost.stone || 0),
+              gold: prev.gold - (validation.cost.gold || 0),
+            }));
+            
+            setSelectedBuilding(null);
+          };
+
+          const endYear = () => {
+            if (year >= MAX_YEARS) {
+              calculateScore(grid, resources);
+              setGameOver(true);
+              return;
+            }
+
+            // Production Phase
+            let newWood = resources.wood + 1; // TS base
+            let newStone = resources.stone + 1; // TS base
+            let newGold = resources.gold + 1; // TS base
+
+            grid.forEach(cell => {
+              if (cell === 'L') newWood++;
+              if (cell === 'Q') newStone++;
+              if (cell === 'M') newGold += 2;
+            });
+
+            setResources({ wood: newWood, stone: newStone, gold: newGold });
+            setYear(y => y + 1);
+            setSelectedBuilding(null);
+          };
+
+          const calculateScore = (finalGrid, finalResources) => {
+            let pts = 0;
+            let castleCells = 0;
+
+            finalGrid.forEach((cell, i) => {
+              if (cell === 'H') pts += 2;
+              if (cell === 'P') {
+                getAdjacent(i).forEach(adj => {
+                  if (finalGrid[adj] === 'H') pts++;
+                });
+              }
+              if (cell === 'C') castleCells++;
+            });
+
+            pts += (castleCells / 4) * 12; // 12 VP per Castle (which spans 4 cells)
+            
+            const totalRes = finalResources.wood + finalResources.stone + finalResources.gold;
+            pts += Math.floor(totalRes / 3);
+
+            setScore(pts);
+          };
+
+          const resetGame = () => {
+            const newGrid = Array(64).fill(null);
+            newGrid[27] = 'TS'; newGrid[28] = 'TS';
+            newGrid[35] = 'TS'; newGrid[36] = 'TS';
+            setGrid(newGrid);
+            setResources(INITIAL_RESOURCES);
+            setYear(1);
+            setGameOver(false);
+            setSelectedBuilding(null);
+            setScore(0);
+          };
+
+          // Hover highlighting logic
+          const getHoverClass = (i) => {
+            if (!selectedBuilding || hoverIndex === null) return '';
+            let hoverCells = [hoverIndex];
+            if (selectedBuilding === 'C') {
+              if (hoverIndex % 8 === 7 || Math.floor(hoverIndex / 8) === 7) return 'opacity-50 bg-red-400';
+              hoverCells = [hoverIndex, hoverIndex + 1, hoverIndex + 8, hoverIndex + 9];
+            }
+            
+            if (hoverCells.includes(i)) {
+              const validation = validatePlacement(hoverIndex, selectedBuilding);
+              return validation.valid ? 'brightness-125 ring-2 ring-white z-10' : 'bg-red-500/50 ring-2 ring-red-500 z-10 cursor-not-allowed';
+            }
+            return '';
+          };
+
+          if (showIntro) {
+            return <IntroScreen onStart={() => setShowIntro(false)} />;
+          }
+
+          return (
+            <div className="min-h-screen bg-slate-900 text-slate-100 font-sans p-4 md:p-8 flex flex-col items-center">
+              
+              {/* HEADER */}
+              <header className="w-full max-w-5xl flex flex-col md:flex-row justify-between items-center mb-6 bg-slate-800 p-4 rounded-xl shadow-lg border border-slate-700">
+                <div>
+                  <h1 className="text-2xl md:text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-emerald-400 flex items-center gap-2">
+                    🏛️ Paper Metropolis
+                  </h1>
+                  <p className="text-slate-400 text-sm mt-1">Engine-Building Strategy</p>
+                </div>
+                
+                <div className="flex items-center gap-6 mt-4 md:mt-0">
+                  <div className="text-center">
+                    <p className="text-xs text-slate-400 uppercase tracking-wider font-bold">Year</p>
+                    <p className="text-3xl font-bold text-emerald-400">{year} <span className="text-lg text-slate-500">/ {MAX_YEARS}</span></p>
+                  </div>
+                  <button 
+                    onClick={endYear}
+                    disabled={gameOver}
+                    className="px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 rounded-lg font-bold shadow-lg transform transition active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {year >= MAX_YEARS ? 'Finish Game' : 'End Year ➔'}
+                  </button>
+                </div>
+              </header>
+
+              {/* MESSAGE TOAST */}
+              <div className="h-8 mb-2 flex items-center justify-center w-full">
+                {message && (
+                  <div className="bg-red-500/20 text-red-300 border border-red-500/50 px-4 py-1 rounded-full text-sm font-medium animate-pulse">
+                    {message}
+                  </div>
+                )}
+              </div>
+
+              <div className="w-full max-w-5xl grid grid-cols-1 lg:grid-cols-12 gap-8">
+                
+                {/* LEFT COLUMN: RESOURCES & GRID */}
+                <div className="lg:col-span-7 flex flex-col gap-6">
+                  
+                  {/* RESOURCES */}
+                  <div className="grid grid-cols-3 gap-4">
+                    <ResourceCard icon="🪵" name="Wood" count={resources.wood} color="text-amber-600" bg="bg-amber-950/30" border="border-amber-900/50" />
+                    <ResourceCard icon="🪨" name="Stone" count={resources.stone} color="text-stone-400" bg="bg-stone-800/50" border="border-stone-700/50" />
+                    <ResourceCard icon="🪙" name="Gold" count={resources.gold} color="text-yellow-400" bg="bg-yellow-950/30" border="border-yellow-900/50" />
+                  </div>
+
+                  {/* GAME GRID */}
+                  <div className="bg-slate-800 p-2 sm:p-4 rounded-xl border border-slate-700 shadow-2xl overflow-hidden flex justify-center">
+                     <div className="grid grid-cols-8 gap-1 sm:gap-2 w-full max-w-[500px] aspect-square">
+                        {grid.map((cell, i) => {
+                          const b = cell ? BUILDINGS[cell] : null;
+                          return (
+                            <div 
+                              key={i}
+                              onMouseEnter={() => setHoverIndex(i)}
+                              onMouseLeave={() => setHoverIndex(null)}
+                              onClick={() => handleCellClick(i)}
+                              className={`
+                                relative rounded-sm sm:rounded-md flex items-center justify-center text-xl sm:text-3xl cursor-pointer transition-all duration-200
+                                ${b ? b.color + ' shadow-inner border border-black/20' : 'bg-slate-900/50 hover:bg-slate-700 border border-slate-700/50'}
+                                ${getHoverClass(i)}
+                              `}
+                            >
+                              {b && <span className="drop-shadow-md select-none">{b.icon}</span>}
+                            </div>
+                          );
+                        })}
+                     </div>
+                  </div>
+                </div>
+
+                {/* RIGHT COLUMN: CATALOG */}
+                <div className="lg:col-span-5 bg-slate-800 p-5 rounded-xl border border-slate-700 shadow-xl flex flex-col">
+                  <h2 className="text-xl font-bold mb-4 flex items-center gap-2 border-b border-slate-700 pb-2">
+                    <span className="text-slate-400">🏗️</span> Blueprints
+                  </h2>
+                  
+                  <div className="flex-1 overflow-y-auto pr-2 space-y-3">
+                    {Object.keys(BUILDINGS).filter(k => k !== 'TS').map(key => {
+                      const b = BUILDINGS[key];
+                      const isSelected = selectedBuilding === key;
+                      const canAfford = resources.wood >= (b.cost.wood||0) && 
+                                        resources.stone >= (b.cost.stone||0) && 
+                                        resources.gold >= (b.cost.gold||0);
+
+                      return (
+                        <button
+                          key={key}
+                          disabled={!canAfford || gameOver}
+                          onClick={() => setSelectedBuilding(isSelected ? null : key)}
+                          className={`
+                            w-full text-left p-3 rounded-lg border-2 transition-all flex items-center gap-4
+                            ${isSelected ? 'bg-slate-700 border-emerald-500 scale-[1.02] shadow-lg' : 'bg-slate-900/50 border-transparent hover:bg-slate-700/50'}
+                            ${!canAfford ? 'opacity-50 grayscale cursor-not-allowed' : ''}
+                          `}
+                        >
+                          <div className={`w-12 h-12 flex items-center justify-center rounded-md text-2xl shadow-inner ${b.color}`}>
+                            {b.icon}
+                          </div>
+                          <div className="flex-1">
+                            <div className="flex justify-between items-center">
+                              <h3 className="font-bold text-slate-100">{b.name}</h3>
+                              <div className="flex gap-1 text-xs">
+                                {b.cost.wood && <span className="bg-amber-900/50 text-amber-200 px-1.5 py-0.5 rounded">🪵 {b.cost.wood}</span>}
+                                {b.cost.stone && <span className="bg-stone-700/50 text-stone-200 px-1.5 py-0.5 rounded">🪨 {b.cost.stone}</span>}
+                                {b.cost.gold && <span className="bg-yellow-900/50 text-yellow-200 px-1.5 py-0.5 rounded">🪙 {b.cost.gold}</span>}
+                              </div>
+                            </div>
+                            <p className="text-xs text-slate-400 mt-1 leading-tight">{b.desc}</p>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  
+                  {/* Legend/Hint */}
+                  <div className="mt-4 pt-4 border-t border-slate-700 text-xs text-slate-500">
+                    <p>💡 Tip: Buildings must touch existing buildings. Every unspent 3 resources = 1 VP.</p>
+                  </div>
+                </div>
+
+              </div>
+
+              {/* GAME OVER MODAL */}
+              {gameOver && (
+                <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-300">
+                  <div className="bg-slate-800 border border-slate-600 p-8 rounded-2xl shadow-2xl max-w-sm w-full text-center transform scale-100 transition-all">
+                    <h2 className="text-4xl font-bold mb-2">City Built!</h2>
+                    <p className="text-slate-400 mb-6">Year 10 has concluded.</p>
+                    
+                    <div className="bg-slate-900/50 rounded-xl p-6 mb-8 border border-slate-700">
+                      <p className="text-sm text-slate-400 uppercase tracking-widest font-bold mb-1">Final Score</p>
+                      <p className="text-6xl font-black text-transparent bg-clip-text bg-gradient-to-br from-emerald-400 to-cyan-500">
+                        {score} <span className="text-2xl text-slate-500">VP</span>
+                      </p>
+                    </div>
+
+                    <div className="space-y-3 mb-8 text-sm text-left text-slate-300">
+                       <div className="flex justify-between"><span>Houses & Parks:</span> <span>Score major points</span></div>
+                       <div className="flex justify-between"><span>Castles:</span> <span>12 VP each</span></div>
+                       <div className="flex justify-between"><span>Leftover Resources:</span> <span>1 VP per 3</span></div>
+                    </div>
+
+                    <button 
+                      onClick={resetGame}
+                      className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-lg shadow-lg hover:shadow-emerald-500/20 transition-all active:scale-95"
+                    >
+                      Play Again
+                    </button>
+                  </div>
+                </div>
+              )}
+
             </div>
+          );
+        }
 
-            <div className="space-y-3 mb-8 text-sm text-left text-slate-300">
-               <div className="flex justify-between"><span>Houses & Parks:</span> <span>Score major points</span></div>
-               <div className="flex justify-between"><span>Castles:</span> <span>12 VP each</span></div>
-               <div className="flex justify-between"><span>Leftover Resources:</span> <span>1 VP per 3</span></div>
+        // Sub-component for Resource displays
+        function ResourceCard({ icon, name, count, color, bg, border }) {
+          return (
+            <div className={`flex flex-col items-center p-3 sm:p-4 rounded-xl border ${bg} ${border}`}>
+              <span className="text-2xl sm:text-3xl mb-1">{icon}</span>
+              <span className={`text-2xl sm:text-3xl font-black ${color}`}>{count}</span>
+              <span className="text-xs uppercase tracking-wider font-bold text-slate-500 mt-1">{name}</span>
             </div>
+          );
+        }
 
-            <button 
-              onClick={resetGame}
-              className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-lg shadow-lg hover:shadow-emerald-500/20 transition-all active:scale-95"
-            >
-              Play Again
-            </button>
-          </div>
-        </div>
-      )}
+        // --- INTRO SCREEN COMPONENT ---
+        function IntroScreen({ onStart }) {
+          const [step, setStep] = useState(0);
 
-    </div>
-  );
-}
+          useEffect(() => {
+            // Staggered animation timers
+            const timers = [
+              setTimeout(() => setStep(1), 400),
+              setTimeout(() => setStep(2), 1200),
+              setTimeout(() => setStep(3), 2000),
+              setTimeout(() => setStep(4), 2800)
+            ];
+            return () => timers.forEach(clearTimeout);
+          }, []);
 
-// Sub-component for Resource displays
-function ResourceCard({ icon, name, count, color, bg, border }) {
-  return (
-    <div className={`flex flex-col items-center p-3 sm:p-4 rounded-xl border ${bg} ${border}`}>
-      <span className="text-2xl sm:text-3xl mb-1">{icon}</span>
-      <span className={`text-2xl sm:text-3xl font-black ${color}`}>{count}</span>
-      <span className="text-xs uppercase tracking-wider font-bold text-slate-500 mt-1">{name}</span>
-    </div>
-  );
-}
+          return (
+            <div className="min-h-screen bg-slate-900 font-sans flex flex-col items-center justify-center p-4">
+              <div className="max-w-2xl w-full bg-slate-800 p-8 md:p-10 rounded-2xl shadow-2xl border border-slate-700 text-center transition-all duration-1000 transform scale-100">
+                <h1 className="text-4xl md:text-5xl font-black mb-2 text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-emerald-400">
+                  🏛️ Paper Metropolis
+                </h1>
+                <p className="text-slate-400 mb-10 text-lg font-medium tracking-wide">made by Newbie</p>
 
-// --- INTRO SCREEN COMPONENT ---
-function IntroScreen({ onStart }) {
-  const [step, setStep] = useState(0);
+                <div className="space-y-8 text-left text-slate-300 mb-10">
+                  <div className={`transition-all duration-700 transform ${step >= 1 ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
+                    <h3 className="text-xl md:text-2xl font-bold text-emerald-400 mb-2">1. Production Phase 🪵🪨🪙</h3>
+                    <p className="text-sm md:text-base leading-relaxed">Every year, your buildings generate resources. The central Town Square produces 1 Wood, 1 Stone, and 1 Gold by default.</p>
+                  </div>
+                  <div className={`transition-all duration-700 transform ${step >= 2 ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
+                    <h3 className="text-xl md:text-2xl font-bold text-blue-400 mb-2">2. Construction Phase 🏗️</h3>
+                    <p className="text-sm md:text-base leading-relaxed">Spend resources to place buildings on the grid. Buildings <b>must touch</b> existing ones. Careful: Houses hate Quarries and Lumber Mills!</p>
+                  </div>
+                  <div className={`transition-all duration-700 transform ${step >= 3 ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
+                    <h3 className="text-xl md:text-2xl font-bold text-purple-400 mb-2">3. Victory 🏆</h3>
+                    <p className="text-sm md:text-base leading-relaxed">You have exactly 10 Years to build. Castles, Parks (next to Houses), and leftover resources will score you Victory Points!</p>
+                  </div>
+                </div>
 
-  useEffect(() => {
-    // Staggered animation timers
-    const timers = [
-      setTimeout(() => setStep(1), 400),
-      setTimeout(() => setStep(2), 1200),
-      setTimeout(() => setStep(3), 2000),
-      setTimeout(() => setStep(4), 2800)
-    ];
-    return () => timers.forEach(clearTimeout);
-  }, []);
+                <div className={`transition-all duration-1000 ${step >= 4 ? 'opacity-100' : 'opacity-0'}`}>
+                  <button
+                    onClick={onStart}
+                    className="px-10 py-4 bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white rounded-xl font-bold text-xl shadow-[0_0_20px_rgba(16,185,129,0.3)] hover:shadow-[0_0_30px_rgba(16,185,129,0.5)] transition-all active:scale-95 animate-bounce"
+                  >
+                    Start Planning!
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        }
 
-  return (
-    <div className="min-h-screen bg-slate-900 font-sans flex flex-col items-center justify-center p-4">
-      <div className="max-w-2xl w-full bg-slate-800 p-8 md:p-10 rounded-2xl shadow-2xl border border-slate-700 text-center transition-all duration-1000 transform scale-100">
-        <h1 className="text-4xl md:text-5xl font-black mb-2 text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-emerald-400">
-          🏛️ Paper Metropolis
-        </h1>
-        <p className="text-slate-400 mb-10 text-lg font-medium tracking-wide">made by Newbie</p>
-
-        <div className="space-y-8 text-left text-slate-300 mb-10">
-          <div className={`transition-all duration-700 transform ${step >= 1 ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
-            <h3 className="text-xl md:text-2xl font-bold text-emerald-400 mb-2">1. Production Phase 🪵🪨🪙</h3>
-            <p className="text-sm md:text-base leading-relaxed">Every year, your buildings generate resources. The central Town Square produces 1 Wood, 1 Stone, and 1 Gold by default.</p>
-          </div>
-          <div className={`transition-all duration-700 transform ${step >= 2 ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
-            <h3 className="text-xl md:text-2xl font-bold text-blue-400 mb-2">2. Construction Phase 🏗️</h3>
-            <p className="text-sm md:text-base leading-relaxed">Spend resources to place buildings on the grid. Buildings <b>must touch</b> existing ones. Careful: Houses hate Quarries and Lumber Mills!</p>
-          </div>
-          <div className={`transition-all duration-700 transform ${step >= 3 ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
-            <h3 className="text-xl md:text-2xl font-bold text-purple-400 mb-2">3. Victory 🏆</h3>
-            <p className="text-sm md:text-base leading-relaxed">You have exactly 10 Years to build. Castles, Parks (next to Houses), and leftover resources will score you Victory Points!</p>
-          </div>
-        </div>
-
-        <div className={`transition-all duration-1000 ${step >= 4 ? 'opacity-100' : 'opacity-0'}`}>
-          <button
-            onClick={onStart}
-            className="px-10 py-4 bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white rounded-xl font-bold text-xl shadow-[0_0_20px_rgba(16,185,129,0.3)] hover:shadow-[0_0_30px_rgba(16,185,129,0.5)] transition-all active:scale-95 animate-bounce"
-          >
-            Start Planning!
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
+        // Render the app
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
